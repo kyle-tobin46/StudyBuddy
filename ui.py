@@ -136,9 +136,9 @@ root.after_idle(root.attributes, '-topmost', False)
 root.focus_force()
 
 # === Styling ===
-bg_color = "#1e1e1e"
-fg_color = "#ffffff"
-accent_color = "#3a86ff"
+bg_color = "#1c1c1c"
+fg_color = "#393939"
+accent_color = "#393939"
 font_family = "Helvetica"
 
 root.configure(bg=bg_color)
@@ -151,19 +151,19 @@ main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 pdf_frame = tk.Frame(main_frame, bg=bg_color)
 pdf_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-filename_label = tk.Label(pdf_frame, text="No file selected", font=(font_family, 14, "bold"), fg=fg_color, bg=bg_color)
+filename_label = tk.Label(pdf_frame, text="No file selected", font=(font_family, 14, "bold"), fg="white", bg=bg_color)
 filename_label.pack(anchor="w")
 
 open_button = tk.Button(
     pdf_frame, text="📂 Open PDF", command=open_pdf,
-    font=(font_family, 12), bg=accent_color, fg="white",
+    font=(font_family, 12), bg="black", fg=accent_color,
     relief="flat", padx=10, pady=5
 )
 open_button.pack(anchor="w", pady=(5, 5))
 
 summarize_button = tk.Button(
     pdf_frame, text="🧠 Summarize Document", command=summarize_document,
-    font=(font_family, 12), bg="#444", fg="white",
+    font=(font_family, 12), bg="#444", fg=accent_color,
     relief="flat", padx=10, pady=5
 )
 summarize_button.pack(anchor="w", pady=(0, 10))
@@ -172,8 +172,8 @@ text_area = scrolledtext.ScrolledText(
     pdf_frame,
     wrap=tk.WORD,
     font=(font_family, 12),
-    bg="#2e2e2e",
-    fg=fg_color,
+    bg=accent_color,
+    fg="#C6C6C6",
     insertbackground=fg_color,
     borderwidth=0
 )
@@ -187,18 +187,18 @@ chat_frame.pack(side=tk.RIGHT, fill=tk.Y)
 chat_log = tk.Text(chat_frame, font=(font_family, 11), bg="#2e2e2e", fg=fg_color, wrap=tk.WORD, borderwidth=0)
 chat_log.pack(fill=tk.BOTH, expand=True, pady=(0, 5), padx=(10, 0))
 chat_log.config(state=tk.DISABLED)
-chat_log.tag_config("user", foreground="#84dfff", font=(font_family, 11, "bold"))
-chat_log.tag_config("ai", foreground="#ffd166", font=(font_family, 11))
+chat_log.tag_config("user", foreground="#C6C6C6", font=(font_family, 11, "bold"))
+chat_log.tag_config("ai", foreground="#00A400", font=(font_family, 11))
 chat_log.tag_config("summary", foreground="#66ffcc", font=(font_family, 11, "bold"))
 
 chat_input_frame = tk.Frame(chat_frame, bg=bg_color)
 chat_input_frame.pack(fill=tk.X, padx=(10, 0), pady=(0, 10))
 
-chat_entry = tk.Entry(chat_input_frame, font=(font_family, 12), bg="#2e2e2e", fg=fg_color, insertbackground=fg_color)
+chat_entry = tk.Entry(chat_input_frame, font=(font_family, 12), bg="#2e2e2e", fg="#C6C6C6", insertbackground=fg_color)
 chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
 chat_entry.bind("<Return>", lambda event: send_chat())
 
-send_button = tk.Button(chat_input_frame, text="Send", command=send_chat, bg=accent_color, fg="white", font=(font_family, 12), padx=10, pady=4, relief="flat")
+send_button = tk.Button(chat_input_frame, text="Send", command=send_chat, bg="#444", fg=accent_color, font=(font_family, 12), padx=10, pady=4, relief="flat")
 send_button.pack(side=tk.RIGHT, padx=(5, 0))
 
 # === Launch ===
