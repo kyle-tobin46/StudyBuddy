@@ -1,33 +1,62 @@
-import tkinter as tk
-from tkinter import filedialog, scrolledtext
+import customtkinter as ctk
+import tkinter.filedialog as filedialog
 import tkinter.messagebox as msg
+import tkinter as tk
 import os
 import fitz
+import io
 import threading
+from PIL import Image, ImageTk
 from llm import ask_llama3_stream, is_ollama_running
 from preprocessor import preprocess_document
 
 # === Global state ===
 processed_chunks = []
+current_pdf_path = None
+image_refs = []  # prevent garbage collection of page images
 
-# === Read and clean PDF ===
-def read_pdf(path):
-    doc = fitz.open(path)
-    pages = [page.get_text() for page in doc]
+# === Setup ===
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
+app = ctk.CTk()
+app.title("StudyBuddy")
+
+# Center the window
+window_width, window_height = 1000, 700
+screen_width = app.winfo_screenwidth()
+screen_height = app.winfo_screenheight()
+x = (screen_width // 2) - (window_width // 2)
+y = (screen_height // 2) - (window_height // 2)
+app.geometry(f"{window_width}x{window_height}+{x}+{y}")
+app.after(200, lambda: app.lift())
+
+# === PDF rendering as images ===
+def render_pdf_as_images(file_path):
+    global image_refs
+    image_refs.clear()
+
+    doc = fitz.open(file_path)
+    for widget in image_frame.winfo_children():
+        widget.destroy()
+
+    for i, page in enumerate(doc):
+        pix = page.get_pixmap(dpi=150)  # high-quality render
+        img_data = pix.tobytes("ppm")
+        image = Image.open(io.BytesIO(img_data))
+        photo = ImageTk.PhotoImage(image)
+
+        label = tk.Label(image_frame, image=photo, bg="#1c1c1c")
+        label.image = photo
+        label.pack(pady=10)
+
+        image_refs.append(photo)  # prevent garbage collection
+
     doc.close()
-    return pages
-
-def center_window(window, width, height):
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
-    x = (screen_width // 2) - (width // 2)
-    y = (screen_height // 2) - (height // 2)
-    window.geometry(f"{width}x{height}+{x}+{y}")
 
 # === Open PDF ===
 def open_pdf():
-    global processed_chunks
-
+    global processed_chunks, current_pdf_path
     file_path = filedialog.askopenfilename(
         title="Select a PDF file",
         filetypes=[("PDF Files", "*.pdf")]
@@ -35,51 +64,45 @@ def open_pdf():
     if not file_path:
         return
 
-    text_area.config(state=tk.NORMAL)
-    text_area.delete("1.0", tk.END)
-    text_area.insert(tk.END, "Loading PDF...\nPlease wait.")
-    text_area.update_idletasks()
+    current_pdf_path = file_path  # Save full path
+    render_pdf_as_images(file_path)
+    filename_label.configure(text=f"📄 {os.path.basename(file_path)}")
+    processed_chunks = []
 
-    pages = read_pdf(file_path)
-    if pages:
-        full_text = "\n\n".join(pages)
-        text_area.delete("1.0", tk.END)
-        text_area.insert(tk.END, full_text)
-        text_area.config(state=tk.DISABLED)
 
-        file_name = os.path.basename(file_path)
-        filename_label.config(text=f"📄 {file_name}")
+    render_pdf_as_images(file_path)
+    file_name = os.path.basename(file_path)
+    filename_label.configure(text=f"📄 {file_name}")
+    processed_chunks = []
 
-        processed_chunks = []  # clear any old summaries
-
-# === Manual summarization ===
+# === Summarization ===
 def summarize_document():
     global processed_chunks
-
-    text_area.config(state=tk.NORMAL)
-    text_area.update_idletasks()
-
-    # Fallback: treat entire text as a single page (works for now)
-    pages = [text_area.get("1.0", tk.END)]
-
-    chat_log.config(state=tk.NORMAL)
-    chat_log.insert(tk.END, "\n🤖 Summarizing document... please wait.\n", "ai")
-    chat_log.config(state=tk.DISABLED)
-    chat_log.see(tk.END)
+    chat_log.configure(state="normal")
+    chat_log.insert("end", "\n🤖 Summarizing document... please wait.\n")
+    chat_log.configure(state="disabled")
+    chat_log.see("end")
 
     def run_summary():
-        global processed_chunks
+        doc = fitz.open(current_pdf_path)
+        pages = [page.get_text() for page in doc]
+        doc.close()
+
         processed_chunks = preprocess_document(pages, summarize=True, max_chars=750, max_chunks=3)
+        print(f"🧠 Summary chunks: {len(processed_chunks)}")
+        print(pages[:1])
+
+
 
         summary_text = "\n\n".join(
             f"• {c['summary']}" for c in processed_chunks if c["summary"]
         ).strip()
 
-        chat_log.config(state=tk.NORMAL)
-        chat_log.insert(tk.END, "\n📄 Summary of Document:\n", "summary")
-        chat_log.insert(tk.END, summary_text + "\n", "ai")
-        chat_log.config(state=tk.DISABLED)
-        chat_log.see(tk.END)
+        chat_log.configure(state="normal")
+        chat_log.insert("end", "\n📄 Summary of Document:\n")
+        chat_log.insert("end", summary_text + "\n")
+        chat_log.configure(state="disabled")
+        chat_log.see("end")
 
     threading.Thread(target=run_summary, daemon=True).start()
 
@@ -89,7 +112,7 @@ def send_chat():
     if not user_input:
         return
 
-    chat_entry.delete(0, tk.END)
+    chat_entry.delete(0, "end")
 
     if not is_ollama_running():
         msg.showerror("Ollama Not Running", "Please start Ollama to use StudyBuddy's AI assistant.")
@@ -98,108 +121,97 @@ def send_chat():
     if processed_chunks:
         context = "\n\n".join(chunk["summary"] for chunk in processed_chunks if chunk["summary"])
     else:
-        context = text_area.get("1.0", tk.END)[:2000]
+        # fallback to raw text from PDF
+        try:
+            doc = fitz.open(current_pdf_path)
+            pages = [page.get_text() for page in doc]
+            context = "\n\n".join(pages)[:3000]  # limit context length
+            doc.close()
+        except Exception as e:
+            context = "No context available due to an error."
+            print("Context fallback error:", e)
 
     prompt = f"Answer this question using the following context:\n\n{context}\n\nQuestion: {user_input}"
 
-    # === Write message + thinking text ===
-    chat_log.config(state=tk.NORMAL)
-    chat_log.insert(tk.END, f"\n🧑‍💻 You: {user_input}\n", "user")
-    thinking_index = chat_log.index(tk.END)
-    chat_log.insert(tk.END, "🤖 AI: Thinking...\n", "ai")
-    chat_log.config(state=tk.DISABLED)
-    chat_log.see(tk.END)
-    chat_log.update_idletasks()  # Force it to render before stream starts
+    chat_log.configure(state="normal")
+    chat_log.insert("end", f"\n🧑‍💻 You: {user_input}\n")
+    thinking_index = chat_log.index("end")
+    chat_log.insert("end", "🤖 AI: Thinking...\n")
+    chat_log.configure(state="disabled")
+    chat_log.see("end")
+    chat_log.update_idletasks()
 
     def stream_response():
-        chat_log.config(state=tk.NORMAL)
-        # Remove "Thinking..." line
-        chat_log.delete(thinking_index, f"{thinking_index} +1 line")
-
+        chat_log.configure(state="normal")
+        chat_log.delete(f"{thinking_index} -1 lines", thinking_index)
         for token in ask_llama3_stream(prompt):
-            chat_log.insert(tk.END, token, "ai")
-            chat_log.see(tk.END)
+            chat_log.insert("end", token)
+            chat_log.see("end")
             chat_log.update_idletasks()
-
-        chat_log.config(state=tk.DISABLED)
+        chat_log.configure(state="disabled")
 
     threading.Thread(target=stream_response, daemon=True).start()
 
-
-# === GUI ===
-root = tk.Tk()
-root.title("StudyBuddy")
-center_window(root, 1000, 700)
-root.lift()
-root.attributes('-topmost', True)
-root.after_idle(root.attributes, '-topmost', False)
-root.focus_force()
-
-# === Styling ===
-bg_color = "#1c1c1c"
-fg_color = "#393939"
-accent_color = "#393939"
-font_family = "Helvetica"
-
-root.configure(bg=bg_color)
-
 # === Layout ===
-main_frame = tk.Frame(root, bg=bg_color)
-main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-# === LEFT: PDF viewer ===
-pdf_frame = tk.Frame(main_frame, bg=bg_color)
-pdf_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+padding_frame = ctk.CTkFrame(app, corner_radius=0, fg_color="transparent")
+padding_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-filename_label = tk.Label(pdf_frame, text="No file selected", font=(font_family, 14, "bold"), fg="white", bg=bg_color)
+main_pane = tk.PanedWindow(padding_frame, orient="horizontal", sashwidth=4, bg="#1c1c1c", sashrelief="flat")
+main_pane.pack(fill="both", expand=True)
+
+# === LEFT: PDF Viewer ===
+left_frame = ctk.CTkFrame(master=main_pane, corner_radius=10)
+main_pane.add(left_frame, minsize=400)
+
+filename_label = ctk.CTkLabel(left_frame, text="No file selected", font=ctk.CTkFont(size=14, weight="bold"))
 filename_label.pack(anchor="w")
 
-open_button = tk.Button(
-    pdf_frame, text="📂 Open PDF", command=open_pdf,
-    font=(font_family, 12), bg="black", fg=accent_color,
-    relief="flat", padx=10, pady=5
-)
-open_button.pack(anchor="w", pady=(5, 5))
+top_controls = ctk.CTkFrame(left_frame, fg_color="transparent")
+top_controls.pack(anchor="w", pady=(5, 5))
 
-summarize_button = tk.Button(
-    pdf_frame, text="🧠 Summarize Document", command=summarize_document,
-    font=(font_family, 12), bg="#444", fg=accent_color,
-    relief="flat", padx=10, pady=5
-)
-summarize_button.pack(anchor="w", pady=(0, 10))
+open_button = ctk.CTkButton(top_controls, text="📂 Open PDF", command=open_pdf, width=120)
+open_button.pack(side="left", padx=(0, 5))
 
-text_area = scrolledtext.ScrolledText(
-    pdf_frame,
-    wrap=tk.WORD,
-    font=(font_family, 12),
-    bg=accent_color,
-    fg="#C6C6C6",
-    insertbackground=fg_color,
-    borderwidth=0
-)
-text_area.pack(fill=tk.BOTH, expand=True)
-text_area.config(state=tk.DISABLED)
+summarize_button = ctk.CTkButton(top_controls, text="🧠 Summarize Document", command=summarize_document)
+summarize_button.pack(side="left")
+
+# === Scrollable image frame for PDF pages ===
+scroll_canvas = tk.Canvas(left_frame, bg="#1c1c1c", highlightthickness=0)
+scroll_y = tk.Scrollbar(left_frame, orient="vertical", command=scroll_canvas.yview)
+scroll_canvas.configure(yscrollcommand=scroll_y.set)
+
+image_frame = tk.Frame(scroll_canvas, bg="#1c1c1c")
+scroll_canvas.create_window((0, 0), window=image_frame, anchor='nw')
+
+def update_scroll_region(event):
+    scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
+
+image_frame.bind("<Configure>", update_scroll_region)
+
+scroll_canvas.pack(side="left", fill="both", expand=True)
+scroll_y.pack(side="right", fill="y")
 
 # === RIGHT: Chat ===
-chat_frame = tk.Frame(main_frame, bg=bg_color, width=350)
-chat_frame.pack(side=tk.RIGHT, fill=tk.Y)
+right_frame = ctk.CTkFrame(master=main_pane, corner_radius=10)
+main_pane.add(right_frame, minsize=250)
 
-chat_log = tk.Text(chat_frame, font=(font_family, 11), bg="#2e2e2e", fg=fg_color, wrap=tk.WORD, borderwidth=0)
-chat_log.pack(fill=tk.BOTH, expand=True, pady=(0, 5), padx=(10, 0))
-chat_log.config(state=tk.DISABLED)
-chat_log.tag_config("user", foreground="#C6C6C6", font=(font_family, 11, "bold"))
-chat_log.tag_config("ai", foreground="#00A400", font=(font_family, 11))
-chat_log.tag_config("summary", foreground="#66ffcc", font=(font_family, 11, "bold"))
+chat_log = ctk.CTkTextbox(right_frame, font=("Helvetica", 11), corner_radius=6, wrap="word")
+chat_log.pack(fill="both", expand=True, pady=(0, 5))
+chat_log.configure(state="disabled")
 
-chat_input_frame = tk.Frame(chat_frame, bg=bg_color)
-chat_input_frame.pack(fill=tk.X, padx=(10, 0), pady=(0, 10))
+chat_input_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+chat_input_frame.pack(fill="x", pady=(0, 10))
 
-chat_entry = tk.Entry(chat_input_frame, font=(font_family, 12), bg="#2e2e2e", fg="#C6C6C6", insertbackground=fg_color)
-chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
-chat_entry.bind("<Return>", lambda event: send_chat())
+chat_entry = ctk.CTkEntry(chat_input_frame, placeholder_text="Ask a question...", font=("Helvetica", 12))
+chat_entry.pack(side="left", fill="x", expand=True)
+chat_entry.bind("<Return>", lambda e: send_chat())
 
-send_button = tk.Button(chat_input_frame, text="Send", command=send_chat, bg="#444", fg=accent_color, font=(font_family, 12), padx=10, pady=4, relief="flat")
-send_button.pack(side=tk.RIGHT, padx=(5, 0))
+send_button = ctk.CTkButton(chat_input_frame, text="Send", width=70, command=send_chat)
+send_button.pack(side="left", padx=(5, 0))
 
-# === Launch ===
-root.mainloop()
+# === Set initial split
+app.after(300, lambda: main_pane.paneconfig(left_frame, width=500))
+
+# === Run the app
+app.mainloop()

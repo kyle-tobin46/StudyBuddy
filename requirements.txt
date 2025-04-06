@@ -1,2 +1,4 @@
 pymupdf
 tk
+customtkinter
+tkhtmlview
