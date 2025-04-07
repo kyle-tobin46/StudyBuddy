@@ -13,7 +13,8 @@ from preprocessor import preprocess_document
 # === Global state ===
 processed_chunks = []
 current_pdf_path = None
-image_refs = []  # prevent garbage collection of page images
+image_refs = []  # prevent garbage collection
+zoom_level = 1.0  # NEW: initial zoom
 
 # === Setup ===
 ctk.set_appearance_mode("dark")
@@ -22,37 +23,70 @@ ctk.set_default_color_theme("dark-blue")
 app = ctk.CTk()
 app.title("StudyBuddy")
 
-# Center the window
+# Maximize and center
 window_width, window_height = 1000, 700
 screen_width = app.winfo_screenwidth()
 screen_height = app.winfo_screenheight()
 x = (screen_width // 2) - (window_width // 2)
 y = (screen_height // 2) - (window_height // 2)
 app.geometry(f"{window_width}x{window_height}+{x}+{y}")
+app.state("zoomed")
 app.after(200, lambda: app.lift())
 
-# === PDF rendering as images ===
+# Split 70/30
+def set_initial_split():
+    total_width = app.winfo_width() - 20
+    main_pane.paneconfig(left_frame, width=int(total_width * 0.7))
+    main_pane.paneconfig(right_frame, width=int(total_width * 0.3))
+
+app.after(500, set_initial_split)
+
+# === PDF rendering ===
 def render_pdf_as_images(file_path):
     global image_refs
     image_refs.clear()
 
-    doc = fitz.open(file_path)
-    for widget in image_frame.winfo_children():
-        widget.destroy()
+    # Show loading label
+    if loading_label.winfo_exists():
+        loading_label.pack(pady=20)    
+    
+    scroll_canvas.update_idletasks()
 
-    for i, page in enumerate(doc):
-        pix = page.get_pixmap(dpi=150)  # high-quality render
-        img_data = pix.tobytes("ppm")
-        image = Image.open(io.BytesIO(img_data))
-        photo = ImageTk.PhotoImage(image)
+    def do_render():
+        doc = fitz.open(file_path)
 
-        label = tk.Label(image_frame, image=photo, bg="#1c1c1c")
-        label.image = photo
-        label.pack(pady=10)
+        for widget in image_frame.winfo_children():
+            widget.destroy()
 
-        image_refs.append(photo)  # prevent garbage collection
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=int(150 * zoom_level))  # Adjust DPI with zoom
+            img_data = pix.tobytes("ppm")
+            image = Image.open(io.BytesIO(img_data))
+            photo = ImageTk.PhotoImage(image)
 
-    doc.close()
+            label = tk.Label(image_frame, image=photo, bg="#1c1c1c")
+            label.image = photo
+            label.pack(pady=10)
+
+            image_refs.append(photo)
+
+        doc.close()
+        loading_label.pack_forget()
+
+    threading.Thread(target=do_render, daemon=True).start()
+
+# === Zoom controls ===
+def zoom_in():
+    global zoom_level
+    zoom_level = min(zoom_level + 0.1, 3.0)
+    if current_pdf_path:
+        render_pdf_as_images(current_pdf_path)
+
+def zoom_out():
+    global zoom_level
+    zoom_level = max(zoom_level - 0.1, 0.5)
+    if current_pdf_path:
+        render_pdf_as_images(current_pdf_path)
 
 # === Open PDF ===
 def open_pdf():
@@ -64,15 +98,9 @@ def open_pdf():
     if not file_path:
         return
 
-    current_pdf_path = file_path  # Save full path
+    current_pdf_path = file_path
     render_pdf_as_images(file_path)
     filename_label.configure(text=f"📄 {os.path.basename(file_path)}")
-    processed_chunks = []
-
-
-    render_pdf_as_images(file_path)
-    file_name = os.path.basename(file_path)
-    filename_label.configure(text=f"📄 {file_name}")
     processed_chunks = []
 
 # === Summarization ===
@@ -89,11 +117,6 @@ def summarize_document():
         doc.close()
 
         processed_chunks = preprocess_document(pages, summarize=True, max_chars=750, max_chunks=3)
-        print(f"🧠 Summary chunks: {len(processed_chunks)}")
-        print(pages[:1])
-
-
-
         summary_text = "\n\n".join(
             f"• {c['summary']}" for c in processed_chunks if c["summary"]
         ).strip()
@@ -121,11 +144,10 @@ def send_chat():
     if processed_chunks:
         context = "\n\n".join(chunk["summary"] for chunk in processed_chunks if chunk["summary"])
     else:
-        # fallback to raw text from PDF
         try:
             doc = fitz.open(current_pdf_path)
             pages = [page.get_text() for page in doc]
-            context = "\n\n".join(pages)[:3000]  # limit context length
+            context = "\n\n".join(pages)[:3000]
             doc.close()
         except Exception as e:
             context = "No context available due to an error."
@@ -153,7 +175,6 @@ def send_chat():
     threading.Thread(target=stream_response, daemon=True).start()
 
 # === Layout ===
-
 padding_frame = ctk.CTkFrame(app, corner_radius=0, fg_color="transparent")
 padding_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -173,10 +194,16 @@ top_controls.pack(anchor="w", pady=(5, 5))
 open_button = ctk.CTkButton(top_controls, text="📂 Open PDF", command=open_pdf, width=120)
 open_button.pack(side="left", padx=(0, 5))
 
-summarize_button = ctk.CTkButton(top_controls, text="🧠 Summarize Document", command=summarize_document)
-summarize_button.pack(side="left")
+summarize_button = ctk.CTkButton(top_controls, text="🧠 Summarize", command=summarize_document)
+summarize_button.pack(side="left", padx=(0, 5))
 
-# === Scrollable image frame for PDF pages ===
+zoom_in_btn = ctk.CTkButton(top_controls, text="➕ Zoom In", command=zoom_in, width=100)
+zoom_in_btn.pack(side="left", padx=(5, 2))
+
+zoom_out_btn = ctk.CTkButton(top_controls, text="➖ Zoom Out", command=zoom_out, width=100)
+zoom_out_btn.pack(side="left")
+
+# === Scrollable image viewer ===
 scroll_canvas = tk.Canvas(left_frame, bg="#1c1c1c", highlightthickness=0)
 scroll_y = tk.Scrollbar(left_frame, orient="vertical", command=scroll_canvas.yview)
 scroll_canvas.configure(yscrollcommand=scroll_y.set)
@@ -184,13 +211,26 @@ scroll_canvas.configure(yscrollcommand=scroll_y.set)
 image_frame = tk.Frame(scroll_canvas, bg="#1c1c1c")
 scroll_canvas.create_window((0, 0), window=image_frame, anchor='nw')
 
+def bind_mousewheel_to_canvas(widget):
+    def _on_mousewheel(event):
+        scroll_units = -1 if event.delta < 0 else 1
+        scroll_canvas.yview_scroll(scroll_units, "units")
+    widget.bind_all("<MouseWheel>", _on_mousewheel)
+    widget.bind_all("<Button-4>", lambda e: scroll_canvas.yview_scroll(-1, "units"))
+    widget.bind_all("<Button-5>", lambda e: scroll_canvas.yview_scroll(1, "units"))
+
+bind_mousewheel_to_canvas(image_frame)
+
 def update_scroll_region(event):
     scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
 
 image_frame.bind("<Configure>", update_scroll_region)
-
 scroll_canvas.pack(side="left", fill="both", expand=True)
 scroll_y.pack(side="right", fill="y")
+
+# === Loading Label (initially hidden) ===
+loading_label = ctk.CTkLabel(image_frame, text="📄 Loading PDF...\nPlease wait.", font=ctk.CTkFont(size=16))
+loading_label.pack_forget()
 
 # === RIGHT: Chat ===
 right_frame = ctk.CTkFrame(master=main_pane, corner_radius=10)
@@ -210,8 +250,5 @@ chat_entry.bind("<Return>", lambda e: send_chat())
 send_button = ctk.CTkButton(chat_input_frame, text="Send", width=70, command=send_chat)
 send_button.pack(side="left", padx=(5, 0))
 
-# === Set initial split
-app.after(300, lambda: main_pane.paneconfig(left_frame, width=500))
-
-# === Run the app
+# === Launch ===
 app.mainloop()

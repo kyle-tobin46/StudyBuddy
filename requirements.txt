@@ -1,4 +1,4 @@
-pymupdf
-tk
 customtkinter
+pymupdf
+pillow
 tkhtmlview

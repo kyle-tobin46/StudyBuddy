@@ -1,72 +1,71 @@
-# StudyBuddy
+StudyBuddy
+==========
 
-**StudyBuddy** is a privacy-first, offline AI app that lets you open a PDF and chat with it like you're talking to the author.
+A smart, offline-friendly desktop app that lets you load PDF files, ask questions about them, and get summaries — powered by a local AI model (like LLaMA 3 via Ollama).
 
-Whether it's a dense research paper, a textbook, or class notes — StudyBuddy helps you summarize, clarify, and understand complex documents in plain language, all while mimicking the author's tone.
+------------------------
+✨ Features
+------------------------
 
----
+- 🖼️ PDF viewer with accurate page rendering (not just plain text!)
+- 🧠 Summarize entire documents with one click
+- 💬 Chat with an AI assistant about your document
+- 🔍 Zoom in/out buttons for better readability
+- ✅ Works offline (uses local LLMs via Ollama)
 
-## Features
+------------------------
+📦 Installation
+------------------------
 
-- Open any PDF and extract clean, structured text
-- Ask questions and receive answers in the author's style
-- Summarize sections or the whole document (Cliff Notes mode)
-- Fully local — no internet required after setup
-- “Open With StudyBuddy” support from right-click menu
+1. Clone the repo:
 
----
+    git clone https://github.com/your-username/StudyBuddy.git
+    cd StudyBuddy
 
-## Tech Stack
+2. Install dependencies:
 
-- **Python** — core backend
-- **Tkinter** — lightweight local GUI (or Tauri/Electron in future)
-- **PyMuPDF** — PDF text extraction
-- **FAISS** — local vector search
-- **llama-cpp-python** — local LLM backend
-- **MiniLM / BGE** — embedding models for similarity search
+    pip install -r requirements.txt
 
----
+3. Install Ollama for LLM functionality:
 
-## Getting Started
+    Visit https://ollama.com and install Ollama for your OS.
+    Then pull a model. Mistral is recommended but Llamma3 will work too, just slower:
 
-# 1. Clone the repo
-git clone https://github.com/kyle-tobin46/StudyBuddy.git
-cd StudyBuddy
+    ollama run mistral
 
-# 2. (Optional) Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+------------------------
+🚀 Usage
+------------------------
 
-# 3. Install dependencies
-pip install -r requirements.txt
+    python ui.py
 
-# 4. Run the app
-python main.py
+- Use "📂 Open PDF" to load a document
+- Click "🧠 Summarize Document" to generate a summary
+- Ask questions in the chat panel — the AI will use the summary or full text
 
----
+------------------------
+🧠 Powered By
+------------------------
 
-## Packaging & Distribution
-StudyBuddy will be packaged into a standalone .exe or .app using PyInstaller or Tauri, allowing you to:
+- PyMuPDF (for extracting text and rendering PDFs)
+- Pillow (for displaying PDF pages as images)
+- CustomTkinter (modern UI)
+- Ollama (for local language models)
 
-- Launch from your desktop
+------------------------
+🔮 Planned Features
+------------------------
 
-- Right-click → “Open with StudyBuddy” from your file explorer
+- Flashcard generator
+- Study quiz mode
+- Save highlights and notes
+- Browser extension
+- Auto-scrolling and search
+- Cleaner mobile/compact layout
 
-### Planned Features
+------------------------
+👨‍💻 Author
+------------------------
 
--Voice narration with Text-to-Speech
-
--Flashcard generator
-
--Study Mode with quizzes
-
--User highlights and notes
-
--Browser extension (future)
-
----
-
-### Contributing
-This is a solo side project for now, but suggestions, feedback, or issues are always welcome.
-
-Made by Kyle Tobin
+Made by Kyle Tobin  
+GitHub: https://github.com/kyle-tobin46
