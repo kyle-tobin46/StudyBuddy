@@ -1,3 +1,4 @@
+# === Imports ===
 import customtkinter as ctk
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as msg
@@ -10,20 +11,22 @@ from PIL import Image, ImageTk
 from llm import ask_llama3_stream, is_ollama_running
 from preprocessor import preprocess_document
 
-# === Global state ===
+
+# === Global State ===
 processed_chunks = []
 current_pdf_path = None
-image_refs = []  # prevent garbage collection
-zoom_level = 1.0  # NEW: initial zoom
+image_refs = []
+render_lock = threading.Lock()
+zoom_level = 1.0
 
-# === Setup ===
+
+# === App Setup ===
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 app = ctk.CTk()
 app.title("StudyBuddy")
 
-# Maximize and center
 window_width, window_height = 1000, 700
 screen_width = app.winfo_screenwidth()
 screen_height = app.winfo_screenheight()
@@ -33,7 +36,8 @@ app.geometry(f"{window_width}x{window_height}+{x}+{y}")
 app.state("zoomed")
 app.after(200, lambda: app.lift())
 
-# Split 70/30
+
+# === Split View Sizing ===
 def set_initial_split():
     total_width = app.winfo_width() - 20
     main_pane.paneconfig(left_frame, width=int(total_width * 0.7))
@@ -41,46 +45,58 @@ def set_initial_split():
 
 app.after(500, set_initial_split)
 
-# === PDF rendering ===
+
+# === PDF Rendering ===
 def render_pdf_as_images(file_path):
     global image_refs
     image_refs.clear()
 
-    # Show loading label
+    # Save scroll position
+    scroll_pos = scroll_canvas.yview()
+
     if loading_label.winfo_exists():
-        loading_label.pack(pady=20)    
-    
+        loading_label.pack(pady=20)
     scroll_canvas.update_idletasks()
 
     def do_render():
-        doc = fitz.open(file_path)
+        if not render_lock.acquire(blocking=False):
+            return  # Skip if another render is already running
 
-        for widget in image_frame.winfo_children():
-            widget.destroy()
+        try:
+            doc = fitz.open(file_path)
 
-        for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=int(150 * zoom_level))  # Adjust DPI with zoom
-            img_data = pix.tobytes("ppm")
-            image = Image.open(io.BytesIO(img_data))
-            photo = ImageTk.PhotoImage(image)
+            for widget in image_frame.winfo_children():
+                widget.destroy()
 
-            label = tk.Label(image_frame, image=photo, bg="#1c1c1c")
-            label.image = photo
-            label.pack(pady=10)
+            for page in doc:
+                pix = page.get_pixmap(dpi=int(150 * zoom_level))
+                img_data = pix.tobytes("ppm")
+                image = Image.open(io.BytesIO(img_data))
+                photo = ImageTk.PhotoImage(image)
 
-            image_refs.append(photo)
+                label = tk.Label(image_frame, image=photo, bg="#1c1c1c")
+                label.image = photo
+                label.pack(pady=10)
 
-        doc.close()
-        loading_label.pack_forget()
+                image_refs.append(photo)
+
+            doc.close()
+            loading_label.pack_forget()
+            scroll_canvas.after(100, lambda: scroll_canvas.yview_moveto(scroll_pos[0]))
+
+        finally:
+            render_lock.release()
 
     threading.Thread(target=do_render, daemon=True).start()
 
-# === Zoom controls ===
+
+# === Zoom Controls ===
 def zoom_in():
     global zoom_level
     zoom_level = min(zoom_level + 0.1, 3.0)
     if current_pdf_path:
         render_pdf_as_images(current_pdf_path)
+
 
 def zoom_out():
     global zoom_level
@@ -88,13 +104,11 @@ def zoom_out():
     if current_pdf_path:
         render_pdf_as_images(current_pdf_path)
 
-# === Open PDF ===
+
+# === PDF Open ===
 def open_pdf():
     global processed_chunks, current_pdf_path
-    file_path = filedialog.askopenfilename(
-        title="Select a PDF file",
-        filetypes=[("PDF Files", "*.pdf")]
-    )
+    file_path = filedialog.askopenfilename(title="Select a PDF file", filetypes=[("PDF Files", "*.pdf")])
     if not file_path:
         return
 
@@ -102,6 +116,7 @@ def open_pdf():
     render_pdf_as_images(file_path)
     filename_label.configure(text=f"📄 {os.path.basename(file_path)}")
     processed_chunks = []
+
 
 # === Summarization ===
 def summarize_document():
@@ -111,15 +126,14 @@ def summarize_document():
     chat_log.configure(state="disabled")
     chat_log.see("end")
 
+
     def run_summary():
         doc = fitz.open(current_pdf_path)
         pages = [page.get_text() for page in doc]
         doc.close()
 
         processed_chunks = preprocess_document(pages, summarize=True, max_chars=750, max_chunks=3)
-        summary_text = "\n\n".join(
-            f"• {c['summary']}" for c in processed_chunks if c["summary"]
-        ).strip()
+        summary_text = "\n\n".join(f"• {c['summary']}" for c in processed_chunks if c["summary"]).strip()
 
         chat_log.configure(state="normal")
         chat_log.insert("end", "\n📄 Summary of Document:\n")
@@ -128,6 +142,7 @@ def summarize_document():
         chat_log.see("end")
 
     threading.Thread(target=run_summary, daemon=True).start()
+
 
 # === Chat ===
 def send_chat():
@@ -156,7 +171,7 @@ def send_chat():
     prompt = f"Answer this question using the following context:\n\n{context}\n\nQuestion: {user_input}"
 
     chat_log.configure(state="normal")
-    chat_log.insert("end", f"\n🧑‍💻 You: {user_input}\n")
+    chat_log.insert("end", f"\n🧑‍💻 You: {user_input}\n\n", "user")
     thinking_index = chat_log.index("end")
     chat_log.insert("end", "🤖 AI: Thinking...\n")
     chat_log.configure(state="disabled")
@@ -170,9 +185,13 @@ def send_chat():
             chat_log.insert("end", token)
             chat_log.see("end")
             chat_log.update_idletasks()
+
+        
+        chat_log.insert("end", "\n\n")  # Add a clean newline after response
         chat_log.configure(state="disabled")
 
     threading.Thread(target=stream_response, daemon=True).start()
+
 
 # === Layout ===
 padding_frame = ctk.CTkFrame(app, corner_radius=0, fg_color="transparent")
@@ -203,7 +222,6 @@ zoom_in_btn.pack(side="left", padx=(5, 2))
 zoom_out_btn = ctk.CTkButton(top_controls, text="➖ Zoom Out", command=zoom_out, width=100)
 zoom_out_btn.pack(side="left")
 
-# === Scrollable image viewer ===
 scroll_canvas = tk.Canvas(left_frame, bg="#1c1c1c", highlightthickness=0)
 scroll_y = tk.Scrollbar(left_frame, orient="vertical", command=scroll_canvas.yview)
 scroll_canvas.configure(yscrollcommand=scroll_y.set)
@@ -228,7 +246,6 @@ image_frame.bind("<Configure>", update_scroll_region)
 scroll_canvas.pack(side="left", fill="both", expand=True)
 scroll_y.pack(side="right", fill="y")
 
-# === Loading Label (initially hidden) ===
 loading_label = ctk.CTkLabel(image_frame, text="📄 Loading PDF...\nPlease wait.", font=ctk.CTkFont(size=16))
 loading_label.pack_forget()
 
@@ -239,6 +256,9 @@ main_pane.add(right_frame, minsize=250)
 chat_log = ctk.CTkTextbox(right_frame, font=("Helvetica", 11), corner_radius=6, wrap="word")
 chat_log.pack(fill="both", expand=True, pady=(0, 5))
 chat_log.configure(state="disabled")
+chat_log.tag_config("user", foreground="#00ff88")
+
+
 
 chat_input_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
 chat_input_frame.pack(fill="x", pady=(0, 10))
@@ -250,5 +270,4 @@ chat_entry.bind("<Return>", lambda e: send_chat())
 send_button = ctk.CTkButton(chat_input_frame, text="Send", width=70, command=send_chat)
 send_button.pack(side="left", padx=(5, 0))
 
-# === Launch ===
 app.mainloop()
