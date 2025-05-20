@@ -4,7 +4,7 @@ StudyBuddy
 A smart, offline-friendly desktop app that lets you load PDF files, ask questions about them, and get summaries — powered by a local AI model (like LLaMA 3 via Ollama).
 
 ------------------------
-✨ Features
+Features
 ------------------------
 
 - PDF viewer with accurate page rendering (not just plain text!)
