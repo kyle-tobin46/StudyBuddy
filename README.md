@@ -7,14 +7,14 @@ A smart, offline-friendly desktop app that lets you load PDF files, ask question
 ✨ Features
 ------------------------
 
-- 🖼️ PDF viewer with accurate page rendering (not just plain text!)
-- 🧠 Summarize entire documents with one click
-- 💬 Chat with an AI assistant about your document
-- 🔍 Zoom in/out buttons for better readability
-- ✅ Works offline (uses local LLMs via Ollama)
+- PDF viewer with accurate page rendering (not just plain text!)
+- Summarize entire documents with one click
+- Chat with an AI assistant about your document
+- Zoom in/out buttons for better readability
+- Works offline (uses local LLMs via Ollama)
 
 ------------------------
-📦 Installation
+Installation
 ------------------------
 
 1. Clone the repo:
@@ -34,7 +34,7 @@ A smart, offline-friendly desktop app that lets you load PDF files, ask question
     ollama run mistral
 
 ------------------------
-🚀 Usage
+Usage
 ------------------------
 
     python ui.py
@@ -44,7 +44,7 @@ A smart, offline-friendly desktop app that lets you load PDF files, ask question
 - Ask questions in the chat panel — the AI will use the summary or full text
 
 ------------------------
-🧠 Powered By
+Powered By
 ------------------------
 
 - PyMuPDF (for extracting text and rendering PDFs)
@@ -53,7 +53,7 @@ A smart, offline-friendly desktop app that lets you load PDF files, ask question
 - Ollama (for local language models)
 
 ------------------------
-🔮 Planned Features
+Planned Features
 ------------------------
 
 - Flashcard generator
